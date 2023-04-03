@@ -244,6 +244,7 @@ func TestErrorHandling(t *testing.T) {
 		`, "unknown operator: BOOLEAN + BOOLEAN"},
 		{"foobar", "identifier not found: foobar"},
 		{`"Hello" - "World"`, "unknown operator: STRING - STRING"},
+		{`{"name": "Monkey"}[fn(x) { x }];`, "unusable as hash key: FUNCTION"},
 	}
 
 	for _, tt := range tests {
@@ -475,5 +476,76 @@ func TestArrayIndexExpressions(t *testing.T) {
 		} else {
 			testNullObject(t, evaluated)
 		}
+	}
+}
+
+func TestHashLiterals(t *testing.T) {
+	input := `
+		let two = "two";
+		{
+			"one": 10 - 9,
+			two: 1 + 1,
+			"thr" + "ee": 6 / 2,
+			4: 4,
+			true: 5,
+			false: 6
+		}
+	`
+
+	evaluated := testEval(input)
+	hash, ok := evaluated.(*object.Hash)
+	if !ok {
+		t.Fatalf("Eval didn't return Hash. got=%T (%+v)", evaluated, evaluated)
+	}
+
+	expected := map[object.HashKey]int64{
+		(&object.String{Value: "one"}).HashKey():   1,
+		(&object.String{Value: "two"}).HashKey():   2,
+		(&object.String{Value: "three"}).HashKey(): 3,
+		(&object.Integer{Value: 4}).HashKey():      4,
+		TRUE.HashKey():                             5,
+		FALSE.HashKey():                            6,
+	}
+
+	if len(hash.Pairs) != len(expected) {
+		t.Fatalf("Hash has wrong num of pairs. got=%d", len(hash.Pairs))
+	}
+
+	for ek, ev := range expected {
+		p, ok := hash.Pairs[ek]
+		if !ok {
+			t.Errorf("no pair for %+v in Pairs", ek)
+		}
+
+		testIntegerObject(t, p.Value, ev)
+	}
+}
+
+func TestHashIndexExpressions(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected any
+	}{
+		{`{"foo": 5}["foo"]`, 5},
+		{`{"foo": 5}["bar"]`, nil},
+		{`let key = "foo"; {"foo": 5}[key]`, 5},
+		{`let key = "foo"; {key: 5}["foo"]`, 5},
+		{`{}["foo"]`, nil},
+		{`{5: 5}[5]`, 5},
+		{`{true: 5}[true]`, 5},
+		{`{false: 5}[false]`, 5},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.input, func(t *testing.T) {
+			evaluated := testEval(tt.input)
+			integer, ok := tt.expected.(int)
+			if ok {
+				testIntegerObject(t, evaluated, int64(integer))
+			} else {
+				testNullObject(t, evaluated)
+			}
+		})
 	}
 }
